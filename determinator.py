@@ -2,11 +2,7 @@ import os.path
 import sys
 import mimetypes
 import re
-mimetypes.init()
-mimetypes.add_type('audio/flac','.flac')
-mimetypes.add_type('video/matroska','.mkv')
-mimetypes.add_type('video/avi','.xvid')
-mimetypes.add_type('video/wmv','.wmv')
+mimetypes.init('mime.types')
 
 if os.name in ['nt', 'ce']:
     linking_disabled = True
