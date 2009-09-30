@@ -8,6 +8,9 @@ mimetypes.add_type('video/matroska','.mkv')
 mimetypes.add_type('video/avi','.xvid')
 mimetypes.add_type('video/wmv','.wmv')
 
+if os.name in ['nt', 'ce']:
+    linking_disabled = True
+
 def match_mime(pattern, type):
     pattern = pattern.split('/')
     type = type[0].split('/')
@@ -35,7 +38,7 @@ if not type[0] or type[0].split('/')[0] not in ['audio', 'video']:
     quit()
 
 fh = open('filename-patterns.txt')
-metadata = {}
+metadata = {} # It might be wise to have globally available metadata defined here, e.g. 'video_root' defining a base directory for all videos
 for line in fh:
     line = line.strip()
     if line == '' or line[0] == '#':
@@ -54,10 +57,8 @@ for line in fh:
             break
 fh.close()
 
-print(filename, metadata)
-
 if type[0] == 'audio/mpeg':
-    print 'Extracting ID3 tags'
+    print 'Extracting ID3 tags not implemented yet'
 
 fh = open('match-rules.txt')
 for line in fh:
@@ -75,13 +76,21 @@ for line in fh:
         except KeyError, IndexError:
             continue
 
+        final = False
         for operator in operators:
-            if operator in ['L','l','M']:
+            if operator in 'MLl':
                 os.makedirs( os.path.dirname(target) )
+            if linking_disabled and operator in 'Ll':
+                print("Linking not possible on this platform")
+                continue
             if   operator == 'M':
                 os.rename(filename, target)
                 filename = target
             elif operator == 'L':
-                print("Hardlinking not implemented")
+# FIXME - Add a check to ensure filename and target are on same filesystem
+                os.link(filename, target)
             elif operator == 'l':
-                print("symlinking not implemented")
+                os.symlink(filename, target)
+            elif operator == 'F':
+                final = True
+        if final: break
