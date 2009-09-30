@@ -76,7 +76,7 @@ for line in fh:
         except KeyError, IndexError:
             continue
 
-        final = False
+        fallthrough = False
         for operator in operators:
             if operator in 'MLl':
                 os.makedirs( os.path.dirname(target) )
@@ -91,6 +91,6 @@ for line in fh:
                 os.link(filename, target)
             elif operator == 'l':
                 os.symlink(filename, target)
-            elif operator == 'F':
-                final = True
-        if final: break
+            elif operator == 'f':
+                fallthrough = True
+        if fallthrough: break

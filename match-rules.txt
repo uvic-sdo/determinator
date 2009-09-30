@@ -9,7 +9,9 @@
 #    M: move the source file to the target destination
 #    L: link the source file to the target destination
 #    l: sym-link the source file to the target destination
+#    f: fallthrough to next rule after matching this one
 #    In each case, any folders necessary to reach the target destination will be
 #    created.
 
-video/*	Videos/{title}{extension}	M
+video/*	Videos/Television/{series}/Season {season}/{title}{extension}	M
+video/*	Videos/{filename}	M
