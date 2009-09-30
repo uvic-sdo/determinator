@@ -1,0 +1,15 @@
+# Match patterns - Used to move/link files based on collected metadata
+# the format is somewhat similar to mod_rewrite rules for apache
+# Each line contains 3 fields seperated by a single tab. 
+# A mimetype pattern, a target, and a set of operators
+# - The mimetype patterns are described in filename-patterns.txt
+# - The target is a python format string as described Section 8.1.3 of the 
+#   python manual at http://docs.python.org/library/string.html#formatstrings
+# - The operators can be one or more of the following characters:
+#    M: move the source file to the target destination
+#    L: link the source file to the target destination
+#    l: sym-link the source file to the target destination
+#    In each case, any folders necessary to reach the target destination will be
+#    created.
+
+video/*	Videos/{title}{extension}	M

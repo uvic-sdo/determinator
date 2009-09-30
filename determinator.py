@@ -37,7 +37,8 @@ if not type[0] or type[0].split('/')[0] not in ['audio', 'video']:
 fh = open('filename-patterns.txt')
 metadata = {}
 for line in fh:
-    if line[0] == '#' or line == '\n':
+    line = line.strip()
+    if line == '' or line[0] == '#':
         continue
     try:
         mime_pattern, regex = line.split('\t')
@@ -51,5 +52,36 @@ for line in fh:
         if match:
             metadata = match.groupdict()
             break
+fh.close()
 
 print(filename, metadata)
+
+if type[0] == 'audio/mpeg':
+    print 'Extracting ID3 tags'
+
+fh = open('match-rules.txt')
+for line in fh:
+    line = line.strip()
+    if line == '' or line[0] == '#':
+        continue
+    try:
+        mime_pattern, target, operators = line.split('\t')
+    except ValueError:
+        print("Invalid match rule:", line)
+        quit()
+    if match_mime(mime_pattern, type):
+        try:
+            target = target.format(**metadata)
+        except KeyError, IndexError:
+            continue
+
+        for operator in operators:
+            if operator in ['L','l','M']:
+                os.makedirs( os.path.dirname(target) )
+            if   operator == 'M':
+                os.rename(filename, target)
+                filename = target
+            elif operator == 'L':
+                print("Hardlinking not implemented")
+            elif operator == 'l':
+                print("symlinking not implemented")
