@@ -1,0 +1,6 @@
+# This file contains patterns for matching against filenames.
+# Each line begins with a pattern to match against the mime type of the given file
+# where * is a wildcard for that portion of the mimetype 
+# audio/* matches all audio files, */* matches everything (so does *) 
+
+video/*	\\(?P<title>.+)\.(?P<extension>.+)
