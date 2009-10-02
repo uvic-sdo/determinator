@@ -4,11 +4,54 @@ import mimetypes
 import re
 mimetypes.init('mime.types')
 
-if os.name in ['nt', 'ce']:
-    linking_disabled = True
 
-def match_mime(pattern, type):
-    pattern = pattern.split('/')
+class SourceFile(object):
+    def __init__(self, pathname, fparser):
+        if not os.path.isfile(filename):
+            print("given path is not a file")
+            quit()
+        self.fparser = fparser
+        self.filename = os.path.abspath(filename)
+        self.type = mimetypes.guess_type(filename)
+        if not self.type[0] or self.type[0].split('/')[0] not in ['audio', 'video']:
+            print("Unsupported file type")
+            quit()
+        self.metadata = {} # It might be wise to have globally available metadata defined here, e.g. 'video_root' defining a base directory for all videos
+
+    def getMetadata(self):
+        self.metadata = self.fparser.parse(filename)
+        if type[0] == 'audio/mpeg':
+            print 'Extracting ID3 tags not implemented yet'
+
+
+class FilenameParser(object,MimeChecker):
+    def __init__(self, pattern_file):
+        self.pattern_file = pattern_file
+        self.file = open(self.pattern_file, 'r')
+
+    def parse(self, filename):
+        metadata = {} # It might be wise to have globally available metadata defined here, e.g. 'video_root' defining a base directory for all videos
+        self.file.seek(0)
+        for line in self.file:
+            line = line.strip()
+            if line == '' or line[0] == '#':
+                continue
+            mime_pattern, regex = re.split('\t+', line)
+            regex = regex.strip()
+            if pattern.check_mime(type):
+                regex = re.compile(regex)
+                match = regex.search( filename.replace(root,'') )
+                if match:
+                    metadata = match.groupdict()
+                    break
+        return metadata
+
+class TargetMatcher(object,MimeChecker):
+    def __init__(self, line):
+        self.mime_pattern, self.target, self.operators = re.split('\t+', line)
+
+def check_mime(self, type):
+    pattern = self.mime_pattern.split('/')
     type = type[0].split('/')
     for i in range( min( len(pattern), len(type) ) ):
         if pattern[i] == '*' or pattern[i] == type[i]:
@@ -17,46 +60,27 @@ def match_mime(pattern, type):
             return False
     return True
 
+if os.name in ['nt', 'ce']:
+    linking_disabled = True
+
 try:
     filename = sys.argv[1]
 except:
     print("No filename provided")
     quit()
 
-if os.path.isfile(filename): filename = os.path.abspath(filename)
 
 #FIXME - This will be a config variable later
 root = os.getcwd()
 
-type = mimetypes.guess_type(filename)
-if not type[0] or type[0].split('/')[0] not in ['audio', 'video']:
-    print("Unsupported file type")
-    quit()
+fparser = FilenameParser('filename-patterns.txt')
+fmover = FileMover('match-rules.txt')
+sourcefile = SourceFile(filename, fparser, fmover)
+sourcefile.getMetadata()
+sourcefile.move()
 
-fh = open('filename-patterns.txt')
-metadata = {} # It might be wise to have globally available metadata defined here, e.g. 'video_root' defining a base directory for all videos
-for line in fh:
-    line = line.strip()
-    if line == '' or line[0] == '#':
-        continue
-    try:
-        mime_pattern, regex = line.split('\t')
-        regex = regex.strip()
-    except ValueError:
-        print("Invalid filename pattern line:", line)
-        quit()
-    if match_mime(mime_pattern, type):
-        regex = re.compile(regex)
-        match = regex.search( filename.replace(root,'') )
-        if match:
-            metadata = match.groupdict()
-            break
-fh.close()
 
-if type[0] == 'audio/mpeg':
-    print 'Extracting ID3 tags not implemented yet'
 
-fh = open('match-rules.txt')
 for line in fh:
     line = line.strip()
     if line == '' or line[0] == '#':
