@@ -17,7 +17,7 @@ class SourceFile(object):
         self.type = mimetypes.guess_type(filename)
         if not self.type[0] or self.type[0].split('/')[0] not in ['audio', 'video']:
             raise IOError("Unsupported filetype in file '"+filename+"'")
-        self.metadata = {} # It might be wise to have globally available metadata defined here, e.g. 'video_root' defining a base directory for all videos
+        self.metadata = {'filename': os.path.basename(filename)} # It might be wise to have globally available metadata defined here, e.g. 'video_root' defining a base directory for all videos
 
     def getMetadata(self):
         ''' Extract metadata by calling FileParser.parse, and any other valid extraction method '''
@@ -62,7 +62,7 @@ class FilenameParser(object):
         ''' Parse the given filename using filename patterns read in from rules file '''
         self.file.seek(0)
         for line in self.file:
-            if not comment(line): continue
+            if comment(line): continue
             line = self.readline(line)
             print line
             if line and match_mime(line[0], sf.type):
@@ -99,6 +99,7 @@ def match_mime(pattern, type):
     return bool( re.match( fnmatch.translate( pattern ), type[0] ) )
 
 def comment(line):
+    line = line.strip()
     if line == '' or line[0] == '#': return True
 
 if __name__ == "__main__":
