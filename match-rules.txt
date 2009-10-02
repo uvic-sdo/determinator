@@ -15,3 +15,4 @@
 
 video/*	Videos/Television/{series}/Season {season}/{title}{extension}	M
 video/*	Videos/{filename}	M
+*	Unsorted/{filename}	M

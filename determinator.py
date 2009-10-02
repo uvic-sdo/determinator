@@ -21,7 +21,7 @@ class SourceFile(object):
 
     def getMetadata(self):
         ''' Extract metadata by calling FileParser.parse, and any other valid extraction method '''
-        self.metadata = self.fnparser.parse(self)
+        self.metadata.update( self.fnparser.parse(self) )
         if self.type[0] == 'audio/mpeg':
             print 'Extracting ID3 tags not implemented yet'
 
@@ -33,8 +33,9 @@ class SourceFile(object):
                 if linking_disabled and operator in 'Ll':
                     print("Linking not possible on this platform")
                     continue
-                if operator in 'MLl':
-                    os.makedirs( os.path.dirname(target) )
+                if operator in 'MLS':
+                    if not os.path.isdir( os.path.dirname(target) ):
+                        os.makedirs( os.path.dirname(target) )
                 if   operator == 'M':
                     os.rename(self.filename, target)
                     self.filename = target
@@ -43,8 +44,8 @@ class SourceFile(object):
                     try: os.link(self.filename, target)
                     except OSError: 
                         print("Creation of cross-device hardlink failed, falling back to symlink")
-                        operator = 'l'
-                elif operator == 'l':
+                        operator = 'S'
+                elif operator == 'S':
                     os.symlink(self.filename, target)
 
 class FilenameParser(object):
@@ -64,7 +65,6 @@ class FilenameParser(object):
         for line in self.file:
             if comment(line): continue
             line = self.readline(line)
-            print line
             if line and match_mime(line[0], sf.type):
                 regex = re.compile(line[1])
                 match = regex.search( sf.filename.replace(self.root,'') )
@@ -77,7 +77,7 @@ class TargetRuleSet(object):
         self.file = open(filename, 'r')
         
     def readline(self, line):
-        try: mime_pattern, target, operators = re.split('\t\s*', line)
+        try: mime_pattern, target, operators = re.split('\t\s*', line.strip())
         except: return None
         return (mime_pattern, target, operators)
 
@@ -86,9 +86,11 @@ class TargetRuleSet(object):
         self.file.seek(0)
         rules = []
         for line in self.file:
-            if not comment(line): continue
+            if comment(line): continue
             line = self.readline(line)
+            print line
             if line and match_mime(line[0], sf.type):
+                print line[1], sf.metadata
                 try: target = line[1].format(**sf.metadata)
                 except KeyError, IndexError: continue
                 rules.append((target, line[2]))
@@ -113,10 +115,12 @@ if __name__ == "__main__":
 
     mimetypes.init(['mime.types'])
     fnparser = FilenameParser('filename-patterns.txt', root)
-    rules = TargetRuleSet('match-rules.txt')
+    target_rules = TargetRuleSet('match-rules.txt')
 
     if os.name in ['nt', 'ce']:
         linking_disabled = True
     sourcefile = SourceFile(filename, fnparser)
     sourcefile.getMetadata()
-    sourcefile.applyRules( rules.getRules( sourcefile ) )
+    rules = target_rules.getRules( sourcefile )
+    print rules
+    sourcefile.applyRules( rules )
