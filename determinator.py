@@ -5,6 +5,8 @@ import re
 mimetypes.init('mime.types')
 
 class SourceFile(object):
+    ''' This class represents a file to be determinated. It requires a valid 
+    pathname and an FilenameParser object '''
     def __init__(self, pathname, fparser):
         if not os.path.isfile(filename):
             print("given path is not a file")
@@ -18,8 +20,10 @@ class SourceFile(object):
         self.metadata = {} # It might be wise to have globally available metadata defined here, e.g. 'video_root' defining a base directory for all videos
 
     def getMetadata(self):
+        ''' Extract metadata by calling FileParser.parse, and any other valid
+        extraction method '''
         self.metadata = self.fparser.parse(filename)
-        if type[0] == 'audio/mpeg':
+        if self.type[0] == 'audio/mpeg':
             print 'Extracting ID3 tags not implemented yet'
 
     def applyRules(self, rules):
