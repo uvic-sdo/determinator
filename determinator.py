@@ -4,7 +4,6 @@ import mimetypes
 import re
 mimetypes.init('mime.types')
 
-
 class SourceFile(object):
     def __init__(self, pathname, fparser):
         if not os.path.isfile(filename):
@@ -23,14 +22,33 @@ class SourceFile(object):
         if type[0] == 'audio/mpeg':
             print 'Extracting ID3 tags not implemented yet'
 
+    def applyRules(self, rules):
+        for rule in rules:
+            target, operators = rule
+            for operator in operators:
+                if linking_disabled and operator in 'Ll':
+                    print("Linking not possible on this platform")
+                    continue
+                if operator in 'MLl':
+                    os.makedirs( os.path.dirname(target) )
+                if   operator == 'M':
+                    os.rename(self.filename, target)
+                    self.filename = target
+                elif operator == 'L':
+                    # FIXME - Add a check to ensure filename and target are on same filesystem
+                    try: os.link(self.filename, target)
+                    except OSError: 
+                        print("Creation of cross-device hardlink failed, falling back to symlink")
+                        operator = 'l'
+                elif operator == 'l':
+                    os.symlink(self.filename, target)
 
 class FilenameParser(object,MimeChecker):
     def __init__(self, pattern_file):
-        self.pattern_file = pattern_file
-        self.file = open(self.pattern_file, 'r')
+        self.file = open(pattern_file, 'r')
 
     def parse(self, filename):
-        metadata = {} # It might be wise to have globally available metadata defined here, e.g. 'video_root' defining a base directory for all videos
+        metadata = {}
         self.file.seek(0)
         for line in self.file:
             line = line.strip()
@@ -46,71 +64,50 @@ class FilenameParser(object,MimeChecker):
                     break
         return metadata
 
-class TargetMatcher(object,MimeChecker):
-    def __init__(self, line):
-        self.mime_pattern, self.target, self.operators = re.split('\t+', line)
+class RuleSet(object,MimeChecker):
+    def __init__(self, filename):
+        self.file = open(filename, 'r')
+        
+    def getRules(self, metadata):
+        rules = []
+        for line in self.file:
+            line = line.strip()
+            if line == '' or line[0] == '#':
+                continue
+            try:
+                mime_pattern, target, operators = line.split('\t')
+            except ValueError:
+                print("Ignoring invalid match rule:", line)
+                continue
+            if match_mime(mime_pattern, type):
+                try: target = target.format(**metadata)
+                except KeyError, IndexError: continue
+                rules.append((target, operators))
+                if operators.find('f') < 0: break
+        return rules
 
 def check_mime(self, type):
     pattern = self.mime_pattern.split('/')
     type = type[0].split('/')
     for i in range( min( len(pattern), len(type) ) ):
-        if pattern[i] == '*' or pattern[i] == type[i]:
-            continue
-        else:
-            return False
+        if pattern[i] == '*' or pattern[i] == type[i]: continue
+        else: return False
     return True
 
-if os.name in ['nt', 'ce']:
-    linking_disabled = True
+if __name__ == "__main__":
+    #FIXME - This will be a config variable later
+    root = os.getcwd()
 
-try:
-    filename = sys.argv[1]
-except:
-    print("No filename provided")
-    quit()
-
-
-#FIXME - This will be a config variable later
-root = os.getcwd()
-
-fparser = FilenameParser('filename-patterns.txt')
-fmover = FileMover('match-rules.txt')
-sourcefile = SourceFile(filename, fparser, fmover)
-sourcefile.getMetadata()
-sourcefile.move()
-
-
-
-for line in fh:
-    line = line.strip()
-    if line == '' or line[0] == '#':
-        continue
     try:
-        mime_pattern, target, operators = line.split('\t')
-    except ValueError:
-        print("Invalid match rule:", line)
+        filename = sys.argv[1]
+    except:
+        print("No filename provided")
         quit()
-    if match_mime(mime_pattern, type):
-        try:
-            target = target.format(**metadata)
-        except KeyError, IndexError:
-            continue
 
-        fallthrough = False
-        for operator in operators:
-            if operator in 'MLl':
-                os.makedirs( os.path.dirname(target) )
-            if linking_disabled and operator in 'Ll':
-                print("Linking not possible on this platform")
-                continue
-            if   operator == 'M':
-                os.rename(filename, target)
-                filename = target
-            elif operator == 'L':
-# FIXME - Add a check to ensure filename and target are on same filesystem
-                os.link(filename, target)
-            elif operator == 'l':
-                os.symlink(filename, target)
-            elif operator == 'f':
-                fallthrough = True
-        if fallthrough: break
+    if os.name in ['nt', 'ce']:
+        linking_disabled = True
+    fparser = FilenameParser('filename-patterns.txt')
+    rules = RuleSet('match-rules.txt')
+    sourcefile = SourceFile(filename, fparser)
+    sourcefile.getMetadata()
+    sourcefile.applyRules( rules.getRules( sourcefile.metadata ) )
