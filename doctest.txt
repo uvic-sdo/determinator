@@ -1,0 +1,19 @@
+Tests for the ``determinator``
+==============================
+
+    >>> from determinator import *
+
+    >>> sf = SourceFile('',None)
+    Traceback (most recent call last):
+      File "<stdin>", line 1, in <module>
+      File "determinator.py", line 13, in __init__
+        raise IOError("Could not read file: '"+filename+"'")
+    IOError: Could not read file: ''
+        
+    >>> sf = SourceFile('determinator.py',None)
+    Traceback (most recent call last):
+      File "<stdin>", line 1, in <module>
+      File "determinator.py", line 27, in __init__
+        raise IOError("Unsupported filetype in file '"+filename+"', type: '"+self.type[0]+"'")
+    IOError: Unsupported filetype in file 'determinator.py', type: 'text/x-python'
+            

@@ -2,28 +2,29 @@ import os.path
 import sys
 import mimetypes
 import re
-import configparser
+#import configparser
 mimetypes.init('mime.types')
 
 class SourceFile(object):
     ''' This class represents a file to be determinated. It requires a valid 
     pathname and an FilenameParser object '''
-    def __init__(self, pathname, fparser):
+
+    def __init__(self, filename, fnparser):
+        '''
+        '''        
         if not os.path.isfile(filename):
-            print("given path is not a file")
-            quit()
-        self.fparser = fparser
+            raise IOError("Could not read file: '"+filename+"'")
+        self.fnparser = fnparser
         self.filename = os.path.abspath(filename)
         self.type = mimetypes.guess_type(filename)
         if not self.type[0] or self.type[0].split('/')[0] not in ['audio', 'video']:
-            print("Unsupported file type")
-            quit()
+            raise IOError("Unsupported filetype in file '"+filename+"', type: '"+self.type[0]+"'")
         self.metadata = {} # It might be wise to have globally available metadata defined here, e.g. 'video_root' defining a base directory for all videos
 
     def getMetadata(self):
         ''' Extract metadata by calling FileParser.parse, and any other valid
         extraction method '''
-        self.metadata = self.fparser.parse(filename)
+        self.metadata = self.fnparser.parse(self)
         if self.type[0] == 'audio/mpeg':
             print 'Extracting ID3 tags not implemented yet'
 
@@ -49,66 +50,61 @@ class SourceFile(object):
                 elif operator == 'l':
                     os.symlink(self.filename, target)
 
-class FilenameParser(object,MimeChecker):
-    def __init__(self, pattern_file, root=''):
-        self.file = open(pattern_file, 'r')
+class FilenameParser(object):
+    def __init__(self, pattern_file, root=None):
+        file = open(pattern_file, 'r')
+        self.patterns = [self.readline(line) for line in real_lines(file) if line != None]
+        file.close()
+        self.root = root or ''
 
-    def parse(self, filename):
-    ''' Parse the given filename using filename patterns read in from rules file '''
-        metadata = {}
-        self.file.seek(0)
-        n = 1
-        for line in self.file:
-            line = line.strip()
-            if line == '' or line[0] == '#': continue
-            try:
-                mime_pattern, regex = re.split('\t+', line)
-            except:
-                print("Line:", n, "- Ignoring invalid filename parse rule:", line)
-            regex = regex.strip()
-            if pattern.check_mime(type):
-                regex = re.compile(regex)
-                match = regex.search( filename.replace(root,'') )
+    def readline(self, line):
+        try: mime_pattern, regex = re.split('\t+', line)
+        except: return None
+        regex = regex.strip()
+        del line
+        return locals()
+
+    def parse(self, sf):
+        ''' Parse the given filename using filename patterns read in from rules file '''
+        for p in self.patterns:
+            if mime_match(p['mime_pattern'],type):
+                regex = re.compile(p['regex'])
+                match = regex.search( sf.filename.replace(self.root,'') )
                 if match:
-                    metadata = match.groupdict()
-                    break
-            n += 1
-        return metadata
+                    return match.groupdict()
+        return {}
 
-class TargetRuleSet(object,MimeChecker):
+class TargetRuleSet(object):
     def __init__(self, filename):
-        self.file = open(filename, 'r')
+        file = open(filename, 'r')
+        self.patterns = [self.readline(line) for line in real_lines(file) if line != None]
+        file.close()
         
+    def readline(self, line):
+        try: mime_pattern, target, operators = re.split('\t\s*', line)
+        except: return None
+        del line
+        return locals()
+
     def getRules(self, metadata):
-    ''' Find matching rules for the given metadata in the target rules file '''
+        ''' Find matching rules for the given metadata in the target rules file '''
         rules = []
-        n = 1
-        for line in self.file:
-            line = line.strip()
-            if line == '' or line[0] == '#': continue
-            try:
-                mime_pattern, target, operators = line.split('\t')
-            except ValueError:
-                print("Line:", n, "- Ignoring invalid target rule:", line)
-                continue
-            if match_mime(mime_pattern, type):
-                try: target = target.format(**metadata)
+        for p in self.patterns:
+            if match_mime(p['mime_pattern'], type):
+                try: target = p['target'].format(**metadata)
                 except KeyError, IndexError: continue
-                rules.append((target, operators))
-                if operators.find('f') < 0: break
-            n += 1
+                rules.append((target, p['operators']))
+                if p['operators'].find('f') < 0: break
         return rules
 
-class MimeChecker(object):
-''' Simple class used only to spread the check_mime method around '''
-    def check_mime(self, pattern, type):
-    ''' Checks to see if the provided pattern and type match '''
-        pattern = pattern.split('/')
-        type = type[0].split('/')
-        for i in range( min( len(pattern), len(type) ) ):
-            if pattern[i] == '*' or pattern[i] == type[i]: continue
-            else: return False
-        return True
+def match_mime(pattern, type):
+    return bool( re.match(fnmatch.translate(pattern), type[0]))
+
+def real_lines(list):
+    return [line.strip() for line in list if not comment(line)]
+
+def comment(line):
+    if line == '' or line[0] == '#': return True
 
 if __name__ == "__main__":
     #FIXME - This will be a config variable later
@@ -119,11 +115,11 @@ if __name__ == "__main__":
         print("No filename provided")
         quit()
 
-    fparser = FilenameParser('filename-patterns.txt', root)
+    fnparser = FilenameParser('filename-patterns.txt', root)
     rules = TargetRuleSet('match-rules.txt')
 
     if os.name in ['nt', 'ce']:
         linking_disabled = True
-    sourcefile = SourceFile(filename, fparser)
+    sourcefile = SourceFile(filename, fnparser)
     sourcefile.getMetadata()
     sourcefile.applyRules( rules.getRules( sourcefile.metadata ) )
