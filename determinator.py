@@ -1,5 +1,6 @@
 import os.path
-import sys, getopt
+import sys
+import getopt
 import mimetypes 
 import re
 import fnmatch
@@ -8,7 +9,7 @@ from ConfigParser import ConfigParser
 
 class SourceFile(object):
     ''' This class represents a file to be determinated. It requires a valid 
-    pathname and an FilenameParser object '''
+    pathname and a FilenameParser object '''
 
     def __init__(self, filename, fnparser):
         self.fnparser = fnparser
@@ -16,13 +17,14 @@ class SourceFile(object):
         self.type = mimetypes.guess_type(filename)
         if not self.type[0] or self.type[0].split('/')[0] not in ['audio', 'video']:
             raise IOError("Unsupported filetype in file '"+filename+"'")
-        self.metadata = { 
-            'basename': os.path.basename(filename),
-        } 
+        self.metadata = {'basename': os.path.basename(filename)} 
+        for option in CONFIG.options('Global Metadata'):
+            self.metadata[option] = CONFIG.get('Global Metadata', option)
 
     def getMetadata(self):
-        ''' Extract metadata by calling FileParser.parse, and any other valid extraction method '''
-        self.metadata.update( self.fnparser.parseFile(self) )
+        ''' Extract metadata by calling FileParser.parseFile, and any 
+        other valid extraction method '''
+        self.metadata.update(self.fnparser.parseFile(self))
         if self.type[0] == 'audio/mpeg':
             print 'Extracting ID3 tags not implemented yet'
 
@@ -36,17 +38,18 @@ class SourceFile(object):
                     continue
 
                 if operator in 'MLS':
-                    if not os.path.isdir( os.path.dirname(target) ):
-                        os.makedirs( os.path.dirname(target) )
+                    if not os.path.isdir(os.path.dirname(target)):
+                        os.makedirs(os.path.dirname(target))
 
                 if operator == 'M':
                     os.rename(self.filename, target)
                     self.filename = target
                 elif operator == 'L':
-                    # FIXME - Add a check to ensure filename and target are on same filesystem
+                    # FIXME - Check filename and target are on same filesystem
                     try: os.link(self.filename, target)
                     except OSError: 
-                        print("Creation of cross-device hardlink failed, falling back to symlink")
+                        print("Creation of cross-device hardlink failed,",
+                              "falling back to symlink")
                         operator = 'S'
                 elif operator == 'S':
                     os.symlink(self.filename, target)
@@ -57,25 +60,26 @@ class RuleFinder(object):
         self.ruleSet = []
 
     def loadRules(self, filename):
-        file = open(filename, 'r')
-        n = 1
-        for line in file:
-            line = line.strip()
-            if self.is_comment(line): 
-                continue
-            try:
-                rule = self.ruleclass(line)
-            except ValueError: 
-                raise SyntaxError(filename+': Invalid target rule on line '+n+': '+line)
-            self.ruleSet.append( rule )
-            n += 1
+        with open(filename, 'r') as file:
+            n = 1
+            for line in file:
+                line = line.strip()
+                if self.is_comment(line): continue
+                try:
+                    rule = self.ruleclass(line)
+                except ValueError: 
+                    raise SyntaxError(filename + ':' + n
+                                      + ': Invalid target rule: ' + line )
+                self.ruleSet.append(rule)
+                n += 1
         
     def is_comment(self, line):
-        if line == '' or line[0] == '#': return True
-        else: return False
+        regex = re.compile(r'\s*#|\s*$')
+        return bool(regex.match(line))
 
     def getRules(self, sf):
-        ''' Compile a list of rules that apply to a given SourceFile object '''
+        ''' Return a list of rules that apply to a given SourceFile 
+        This will often return a list of a single item '''
         rules = []
         for rule in self.ruleSet:
             if rule.match(sf):
@@ -86,17 +90,17 @@ class RuleFinder(object):
 
 class FilenameParser(RuleFinder):
     def __init__(self):
-        RuleFinder.__init__( self, FilenameParseRule )
+        RuleFinder.__init__(self, FilenameParseRule)
 
     def parseFile(self, sf):
-        ''' Parse the given filename using filename patterns read in from rules file '''
+        ''' Parse the filename of the provided SourceFile '''
         for rule in self.getRules(sf):
-            sf.metadata.update( rule.parse(sf) )
+            sf.metadata.update(rule.parse(sf))
         return {}
 
 class MimeRule(object):
     def match(self, sf):
-        if self.match_mime( self.mime_pattern, sf ):
+        if self.match_mime(self.mime_pattern, sf):
             if hasattr(self, 'match_rule'):
                 return self.match_rule(sf)
             else:
@@ -105,18 +109,18 @@ class MimeRule(object):
             return False
 
     def match_mime(self, pattern, sf):
-        return bool( re.match( fnmatch.translate( pattern ), sf.type[0] ) )
+        return bool(re.match(fnmatch.translate(pattern), sf.type[0]))
 
 class FilenameParseRule(MimeRule):
     def __init__(self, line):
         self.mime_pattern, regex = re.split('\t\s*', line)
-        self.regex = re.compile( regex.replace('/',str(os.path.sep)[1:-1]) )
+        self.regex = re.compile(regex.replace('/',str(os.path.sep)[1:-1]))
 
     def match_rule(self, sf):
-        return bool( self.regex.search( sf.filename ) )
+        return bool(self.regex.search(sf.filename))
 
     def parse(self, sf):
-        return self.regex.search( sf.filename ).groupdict()
+        return self.regex.search(sf.filename).groupdict()
         
 class TargetRule(MimeRule):
     def __init__(self, line):
@@ -136,6 +140,7 @@ class TargetRule(MimeRule):
 def get_options():
     global OPTIONS
     global ARGS
+    global CONFIG
     optparser = OptionParser()
     optparser.usage = optparser.usage+' FILE [FILE FILE ...]'
     optparser.add_option("-r","--root", dest="root", metavar="DIR",
@@ -151,8 +156,8 @@ def get_options():
 
     OPTIONS, ARGS = optparser.parse_args()
 
-    cp = ConfigParser()
-    cp.read( os.path.expanduser('~/.config/determinator/determinator.rc') )
+    CONFIG = ConfigParser()
+    CONFIG.read(os.path.expanduser('~/.config/determinator/determinator.rc'))
 
     OPTIONS.no_linking = (os.name in ['nt', 'ce'])
 
@@ -162,16 +167,15 @@ def get_options():
 
     if not OPTIONS.root:
         try:
-            OPTIONS.root = cp.get('Misc Options', 'root')
+            OPTIONS.root = CONFIG.get('Misc Options', 'root')
         except:
             OPTIONS.root = os.getcwd()
 
-    return cp
 
 
 def main():
-    cp = get_options()
-    mimetypes.init([ os.path.dirname(__file__)+'/mime.types' ])
+    get_options()
+    mimetypes.init([os.path.dirname(__file__)+'/mime.types'])
     fnparser = FilenameParser()
     targetfinder = RuleFinder(TargetRule)
 
@@ -185,17 +189,17 @@ def main():
     if OPTIONS.targets:
         targetfinder.getRules(OPTIONS.targets)
 
-    for filename in cp.get('Rule Files','targets').split(';'):
+    for filename in CONFIG.get('Rule Files','targets').split(';'):
         targetfinder.getRules(filename)
 
-    for filename in cp.get('Rule Files','patterns').split(';'):
+    for filename in CONFIG.get('Rule Files','patterns').split(';'):
         fnparser.getRules(filename)
 
     for filename in ARGS:
         sourcefile = SourceFile(filename, fnparser)
         sourcefile.getMetadata()
-        rules = targetfinder.getRules( sourcefile )
-        sourcefile.applyRules( rules )
+        rules = targetfinder.getRules(sourcefile)
+        sourcefile.applyRules(rules)
 
 if __name__ == "__main__":
     main()
