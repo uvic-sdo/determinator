@@ -4,7 +4,7 @@ import mimetypes
 import re
 import fnmatch
 from optparse import OptionParser
-#import configparser
+import ConfigParser
 
 class SourceFile(object):
     ''' This class represents a file to be determinated. It requires a valid 
@@ -52,14 +52,9 @@ class SourceFile(object):
                     os.symlink(self.filename, target)
 
 class RuleFinder(object):
-    def __init__(self, rules_file, ruleclass):
+    def __init__(self, ruleclass):
         self.ruleclass = ruleclass
         self.ruleSet = []
-        self.loadRules(rules_file)
-
-    def is_comment(self, line):
-        if line == '' or line[0] == '#': return True
-        else: return False
 
     def loadRules(self, filename):
         file = open(filename, 'r')
@@ -75,6 +70,10 @@ class RuleFinder(object):
             self.ruleSet.append( rule )
             n += 1
         
+    def is_comment(self, line):
+        if line == '' or line[0] == '#': return True
+        else: return False
+
     def getRules(self, sf):
         ''' Compile a list of rules that apply to a given SourceFile object '''
         rules = []
@@ -86,8 +85,8 @@ class RuleFinder(object):
         return rules
 
 class FilenameParser(RuleFinder):
-    def __init__(self, rules_file):
-        RuleFinder.__init__( self, rules_file, FilenameParseRule )
+    def __init__(self):
+        RuleFinder.__init__( self, FilenameParseRule )
 
     def parseFile(self, sf):
         ''' Parse the given filename using filename patterns read in from rules file '''
@@ -134,18 +133,25 @@ class TargetRule(MimeRule):
         except KeyError, IndexError: 
             return False
 
-def main():
+def get_options():
+    global OPTIONS
+    global ARGS
     optparser = OptionParser()
     optparser.add_option("-r","--root", dest="root", metavar="DIR",
                          help="Specify a root component that will be removed from paths before pattern matching. Default action is to use the current working directory")
+    optparser.add_option("-p","--patterns", dest="patterns", metavar="FILE",
+                         help="Specify a file containing filename patterns for metadata matching")
+    optparser.add_option("-t","--targets", dest="targets", metavar="FILE",
+                         help="Specify a file containing target patterns")
     optparser.add_option("-v","--verbose", dest="verbose", default=False, action='store_true',
                          help="Show lots of info about what is being done")
     optparser.add_option("-d","--debug", dest="debug", default=False, action='store_true',
                          help="Show debug info")
 
-    global OPTIONS
-    global ARGS
     OPTIONS, ARGS = optparser.parse_args()
+
+    cp = ConfigParser()
+    cp.read( os.path.expanduser('~/.config/determinator/determinator.rc') )
 
     OPTIONS.no_linking = (os.name in ['nt', 'ce'])
 
@@ -154,21 +160,40 @@ def main():
         quit()
 
     if not OPTIONS.root:
-        OPTIONS.root = os.getcwd()
+        try:
+            OPTIONS.root = cp.get('Misc Options', 'root')
+        except:
+            OPTIONS.root = os.getcwd()
 
-    
-    mimetypes.init([sys.path[0]+'/mime.types'])
-    fnparser = FilenameParser(sys.path[0]+'/filename-patterns.txt')
-    rulefinder = RuleFinder(sys.path[0]+'/targets.txt', TargetRule)
+    return cp
+
+
+def main():
+    cp = get_options()
+    mimetypes.init(os.path.dirname(__file__)+'/mime.types'])
+    fnparser = FilenameParser()
+    targetfinder = RuleFinder(TargetRule)
 
     for filename in ARGS:
-        if not os.path.isfile(filename):
-            raise IOError("Could not read file: '"+filename+"'")
+        if not os.access(filename, os.F_OK & os.W_OK & os.R_OK):
+            raise IOError("Insufficient permissions on file: '"+filename+"'")
+
+    if OPTIONS.patterns:
+        fnparser.getRules(OPTIONS.patterns)
+
+    if OPTIONS.targets:
+        targetfinder.getRules(OPTIONS.targets)
+
+    for filename in cp.get('Rule Files','targets').split(';'):
+        targetfinder.getRules(filename)
+
+    for filename in cp.get('Rule Files','patterns').split(';'):
+        fnparser.getRules(filename)
 
     for filename in ARGS:
         sourcefile = SourceFile(filename, fnparser)
         sourcefile.getMetadata()
-        rules = rulefinder.getRules( sourcefile )
+        rules = targetfinder.getRules( sourcefile )
         sourcefile.applyRules( rules )
 
 if __name__ == "__main__":
