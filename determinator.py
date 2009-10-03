@@ -170,7 +170,7 @@ def get_options():
 
 def main():
     cp = get_options()
-    mimetypes.init(os.path.dirname(__file__)+'/mime.types'])
+    mimetypes.init([ os.path.dirname(__file__)+'/mime.types' ])
     fnparser = FilenameParser()
     targetfinder = RuleFinder(TargetRule)
 
