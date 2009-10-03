@@ -5,4 +5,4 @@
 # audio/* matches all audio files, */* matches everything (so does *) 
 
 # This example matches a tv show
-video/*	\\(?P<series>.+)S(?P<season>[0-9]{2})E(?P<episode>[0-9]{2})(?P<title>.+)(?P<extension>\..+?)
+video/*	/(?P<series>.+)S(?P<season>[0-9]{2})E(?P<episode>[0-9]{2})(?P<title>.+)(?P<extension>\..+?)

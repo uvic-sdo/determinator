@@ -1,8 +1,9 @@
 import os.path
-import sys
+import sys, getopt
 import mimetypes 
 import re
 import fnmatch
+from optparse import OptionParser
 #import configparser
 
 class SourceFile(object):
@@ -10,8 +11,6 @@ class SourceFile(object):
     pathname and an FilenameParser object '''
 
     def __init__(self, filename, fnparser):
-        if not os.path.isfile(filename):
-            raise IOError("Could not read file: '"+filename+"'")
         self.fnparser = fnparser
         self.filename = os.path.abspath(filename)
         self.type = mimetypes.guess_type(filename)
@@ -21,7 +20,7 @@ class SourceFile(object):
 
     def getMetadata(self):
         ''' Extract metadata by calling FileParser.parse, and any other valid extraction method '''
-        self.metadata.update( self.fnparser.parse(self) )
+        self.metadata.update( self.fnparser.parseFile(self) )
         if self.type[0] == 'audio/mpeg':
             print 'Extracting ID3 tags not implemented yet'
 
@@ -30,7 +29,7 @@ class SourceFile(object):
         for rule in rules:
             target, operators = rule
             for operator in operators:
-                if linking_disabled and operator in 'Ll':
+                if settings.no_linking and operator in 'Ll':
                     print("Linking not possible on this platform")
                     continue
                 if operator in 'MLS':
@@ -49,78 +48,123 @@ class SourceFile(object):
                     os.symlink(self.filename, target)
 
 class FilenameParser(object):
-    def __init__(self, pattern_file, root=None):
-        self.file = open(pattern_file, 'r')
-        self.root = root or ''
+    def __init__(self, pattern_file):
+        self.patterns = []
+        self._loadPatterns(pattern_file)
 
-    def readline(self, line):
+    def _loadPatterns(self, pattern_file):
+        file = open(pattern_file, 'r')
+        for line in file:
+            line = line.strip()
+            if is_comment(line): continue
+            self.patterns.append( self._parseLine(line) )
+
+    def _parseLine(self, line):
         try: mime_pattern, regex = re.split('\t+', line)
         except: return None
-        regex = regex.strip().replace('/',os.path.sep)
+        regex = regex.strip().replace('/',str(os.path.sep)[1:-1])
         return (mime_pattern, regex)
 
-    def parse(self, sf):
+    def parseFile(self, sf):
         ''' Parse the given filename using filename patterns read in from rules file '''
-        self.file.seek(0)
-        for line in self.file:
-            if comment(line): continue
-            line = self.readline(line)
-            if line and match_mime(line[0], sf.type):
-                regex = re.compile(line[1])
-                match = regex.search( sf.filename.replace(self.root,'') )
+        for pattern in self.patterns:
+            if pattern and match_mime(pattern[0], sf.type):
+                regex = re.compile(pattern[1])
+                match = regex.search( sf.filename.replace(settings.root,'') )
                 if match:
                     return match.groupdict()
         return {}
 
-class TargetRuleSet(object):
+class RuleFinder(object):
     def __init__(self, filename):
-        self.file = open(filename, 'r')
-        
-    def readline(self, line):
-        try: mime_pattern, target, operators = re.split('\t\s*', line.strip())
-        except: return None
-        return (mime_pattern, target, operators)
+        self.loadRules(filename)
+        self.ruleSet = []
 
+    def loadRules(self, filename)
+        file = open(filename, 'r')
+        n = 1
+        for line in file:
+            line = line.strip()
+            if is_comment(line): 
+                continue
+            try: 
+                mime_pattern, target, operators = re.split('\t\s*', line)
+            except: 
+                raise SyntaxError(filename+': Invalid target rule on line '+n)
+            self.ruleSet.append( TargetRule(mime_pattern, target, operators) )
+            n += 1
+        
     def getRules(self, sf):
         ''' Find matching rules for the given metadata in the target rules file '''
-        self.file.seek(0)
         rules = []
-        for line in self.file:
-            if comment(line): continue
-            line = self.readline(line)
-            print line
-            if line and match_mime(line[0], sf.type):
-                print line[1], sf.metadata
-                try: target = line[1].format(**sf.metadata)
-                except KeyError, IndexError: continue
-                rules.append((target, line[2]))
-                if line[2].find('f') < 0: break
+        for rule in self.ruleSet:
+            if rule.match(sf):
+                rules.append(rule)
+                if not rule.fallthrough: 
+                    break
         return rules
 
+class TargetRule(object):
+    def __init__(self, mime_pattern, target, operators):
+        self.mime_pattern = mime_pattern
+        self.pattern = target
+        self.operators = operators
+        self.formatted = ''
+        self.fallthrough = (operators.find('f') >= 0)
+
+    def match(self, sf):
+        if match_mime(self.mime_pattern, sf.type):
+            try:
+                self.formatted = self.pattern.format(**sf.metadata)
+                return True
+            except KeyError, IndexError: 
+                return False
+        
 def match_mime(pattern, type):
     return bool( re.match( fnmatch.translate( pattern ), type[0] ) )
 
-def comment(line):
-    line = line.strip()
+def is_comment(line):
     if line == '' or line[0] == '#': return True
+    else: return False
 
-if __name__ == "__main__":
-    #FIXME - This will be a config variable later
-    root = os.getcwd()
 
-    try: filename = sys.argv[1]
-    except:
-        print("No filename provided")
-        quit()
+def main():
+    optparser = OptionParser()
+    optparser.add_option("-r","--root", dest="root", metavar="DIR",
+                         help="Specify a root component that will be removed from paths before pattern matching. Default action is to use the current working directory")
+    optparser.add_option("-v","--verbose", dest="verbose", default=False, action='store_true',
+                         help="Show lots of info about what is being done")
+    optparser.add_option("-d","--debug", dest="debug", default=False, action='store_true',
+                         help="Show debug info")
 
-    mimetypes.init(['mime.types'])
-    fnparser = FilenameParser('filename-patterns.txt', root)
-    target_rules = TargetRuleSet('match-rules.txt')
+    global settings
+    global args
+    settings, args = optparser.parse_args()
 
     if os.name in ['nt', 'ce']:
-        linking_disabled = True
-    sourcefile = SourceFile(filename, fnparser)
-    sourcefile.getMetadata()
-    rules = target_rules.getRules( sourcefile )
-    print rules
-    sourcefile.applyRules( rules )
+        settings.no_linking = True
+
+    if len(args) == 0:
+        optparser.print_help();
+        quit()
+
+    if not settings.root:
+        settings.root = os.getcwd()
+
+    mimetypes.init(['mime.types'])
+    fnparser = FilenameParser('filename-patterns.txt')
+    rulefinder = RuleFinder('match-rules.txt')
+
+
+    for filename in args:
+        if not os.path.isfile(filename):
+            raise IOError("Could not read file: '"+filename+"'")
+
+    for filename in args:
+        sourcefile = SourceFile(filename, fnparser)
+        sourcefile.getMetadata()
+        rules = rulefinder.getRules( sourcefile )
+        sourcefile.applyRules( rules )
+
+if __name__ == "__main__":
+    main()
