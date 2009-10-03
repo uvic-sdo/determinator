@@ -4,7 +4,7 @@ import mimetypes
 import re
 import fnmatch
 from optparse import OptionParser
-import ConfigParser
+from ConfigParser import ConfigParser
 
 class SourceFile(object):
     ''' This class represents a file to be determinated. It requires a valid 
@@ -137,6 +137,7 @@ def get_options():
     global OPTIONS
     global ARGS
     optparser = OptionParser()
+    optparser.usage = optparser.usage+' FILE [FILE FILE ...]'
     optparser.add_option("-r","--root", dest="root", metavar="DIR",
                          help="Specify a root component that will be removed from paths before pattern matching. Default action is to use the current working directory")
     optparser.add_option("-p","--patterns", dest="patterns", metavar="FILE",
