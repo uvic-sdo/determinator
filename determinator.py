@@ -16,7 +16,9 @@ class SourceFile(object):
         self.type = mimetypes.guess_type(filename)
         if not self.type[0] or self.type[0].split('/')[0] not in ['audio', 'video']:
             raise IOError("Unsupported filetype in file '"+filename+"'")
-        self.metadata = { 'basename': os.path.basename(filename) } 
+        self.metadata = { 
+            'basename': os.path.basename(filename),
+        } 
 
     def getMetadata(self):
         ''' Extract metadata by calling FileParser.parse, and any other valid extraction method '''
@@ -32,10 +34,12 @@ class SourceFile(object):
                 if OPTIONS.no_linking and operator in 'Ll':
                     print("Linking not possible on this platform")
                     continue
+
                 if operator in 'MLS':
                     if not os.path.isdir( os.path.dirname(target) ):
                         os.makedirs( os.path.dirname(target) )
-                if   operator == 'M':
+
+                if operator == 'M':
                     os.rename(self.filename, target)
                     self.filename = target
                 elif operator == 'L':
@@ -88,7 +92,7 @@ class FilenameParser(RuleFinder):
     def parseFile(self, sf):
         ''' Parse the given filename using filename patterns read in from rules file '''
         for rule in self.getRules(sf):
-            sf.metadata.update( rule.metadata(sf) )
+            sf.metadata.update( rule.parse(sf) )
         return {}
 
 class MimeRule(object):
@@ -111,6 +115,9 @@ class FilenameParseRule(MimeRule):
 
     def match_rule(self, sf):
         return bool( self.regex.search( sf.filename ) )
+
+    def parse(self, sf):
+        return self.regex.search( sf.filename ).groupdict()
         
 class TargetRule(MimeRule):
     def __init__(self, line):
@@ -140,8 +147,7 @@ def main():
     global ARGS
     OPTIONS, ARGS = optparser.parse_args()
 
-    if os.name in ['nt', 'ce']:
-        OPTIONS.no_linking = True
+    OPTIONS.no_linking = (os.name in ['nt', 'ce'])
 
     if len(ARGS) == 0:
         optparser.print_help();
@@ -150,9 +156,10 @@ def main():
     if not OPTIONS.root:
         OPTIONS.root = os.getcwd()
 
-    mimetypes.init(['mime.types'])
-    fnparser = FilenameParser('filename-patterns.txt')
-    rulefinder = RuleFinder('match-rules.txt', TargetRule)
+    
+    mimetypes.init([sys.path[0]+'/mime.types'])
+    fnparser = FilenameParser(sys.path[0]+'/filename-patterns.txt')
+    rulefinder = RuleFinder(sys.path[0]+'/targets.txt', TargetRule)
 
     for filename in ARGS:
         if not os.path.isfile(filename):
