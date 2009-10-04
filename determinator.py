@@ -17,7 +17,7 @@ class SourceFile(object):
         self.metadata = metadata
         self.filename = os.path.abspath(filename)
         self.type = mimetypes.guess_type(filename)
-        if not self.type[0] or self.type[0].split('/')[0] not in ['audio', 'video']:
+        if not self.type[0]:
             raise IOError("Unsupported filetype in file '"+filename+"'")
         self.metadata['basename'] = os.path.basename(filename)
 
@@ -45,10 +45,9 @@ class SourceFile(object):
                     os.rename(self.filename, target)
                     self.filename = target
                 elif operator == 'L':
-                    # FIXME - Check filename and target are on same filesystem
                     try: os.link(self.filename, target)
                     except OSError: 
-                        print("Creation of cross-device hardlink failed,",
+                        print("Creation of hardlink failed,",
                               "falling back to symlink")
                         operator = 'S'
                 elif operator == 'S':
@@ -85,7 +84,7 @@ class RuleFinder(object):
         for rule in self.ruleSet:
             if rule.match(sf):
                 rules.append(rule)
-                if not hasattr(rule, 'fallthrough') or not rule.fallthrough: 
+                if not (hasattr(rule, 'fallthrough') and rule.fallthrough): 
                     break
         return rules
 
@@ -144,23 +143,25 @@ class TargetRule(MimeRule):
     def __gt__(self, other):
         return(other.fallthrough and not self.fallthrough)
 
-
-def main():
+def setup():
     optparser = OptionParser()
     optparser.usage = optparser.usage+' FILE [FILE FILE ...]'
     optparser.add_option("-r","--root", dest="root", metavar="DIR",
-                         help="Specify a root component that will be removed from paths before pattern matching. Default action is to use the current working directory")
+                         help="Specify a root component that will be removed \
+                         from paths before pattern matching. Default action \
+                         is to use the current working directory")
     optparser.add_option("-p","--patterns", dest="patterns", metavar="FILE",
-                         help="Specify a file containing filename patterns for metadata matching")
+                         help="Specify a file containing filename patterns \
+                         for metadata extraction")
     optparser.add_option("-t","--targets", dest="targets", metavar="FILE",
                          help="Specify a file containing target patterns")
-    optparser.add_option("-v","--verbose", dest="verbose", default=False, action='store_true',
+    optparser.add_option("-v","--verbose", dest="verbose", default=False, 
+                         action='store_true',
                          help="Show lots of info about what is being done")
-    optparser.add_option("-d","--debug", dest="debug", default=False, action='store_true',
-                         help="Show debug info")
+    optparser.add_option("-d","--debug", dest="debug", default=False,
+                         action='store_true', help="Show debug info")
 
     options, filenames = optparser.parse_args()
-
     cfg = ConfigParser()
     cfg.read(os.path.expanduser('~/.config/determinator/determinator.rc'))
 
@@ -177,6 +178,10 @@ def main():
             options.root = os.getcwd()
 
     mimetypes.init([os.path.dirname(__file__)+'/mime.types'])
+    return options, filenames, cfg
+
+def main():
+    options, filenames, cfg = setup()
     fnparser = FilenameParser()
     targetfinder = RuleFinder(TargetRule)
 
