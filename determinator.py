@@ -21,16 +21,17 @@ class SourceFile(object):
         self.metadata['basename'] = os.path.basename(filename)
         self.linkable = (os.name not in ['nt','ce'])
 
-    def getMetadata(self):
-        ''' Extract metadata by calling FileParser.parseFile, and any 
+    def get_metadata(self):
+        ''' Extract metadata by calling FileParser.parse_file, and any 
         other valid extraction method '''
-        self.metadata.update(self.fnparser.parseFile(self))
+        self.metadata.update(self.fnparser.parse_file(self))
         if self.type[0] == 'audio/mpeg':
             print 'Extracting ID3 tags not implemented yet'
 
-    def applyRules(self, rules):
+    def apply_rules(self, rules):
         ''' Apply the provided set of rules to the file '''
-        for rule in rules.sort():
+        symlinks = []
+        for rule in rules:
             target = rule.format(self, True)
             for operator in rule.operators:
                 if not self.linkable and operator in 'Ll':
@@ -41,10 +42,7 @@ class SourceFile(object):
                     if not os.path.isdir(os.path.dirname(target)):
                         os.makedirs(os.path.dirname(target))
 
-                if operator == 'M':
-                    os.rename(self.filename, target)
-                    self.filename = target
-                elif operator == 'L':
+                if operator == 'L':
                     try: os.link(self.filename, target)
                     except OSError: 
                         print("Creation of hardlink failed,",
@@ -52,47 +50,66 @@ class SourceFile(object):
                         operator = 'S'
                 elif operator == 'S':
                     os.symlink(self.filename, target)
+                    symlinks.append(target)
+                elif operator == 'M':
+                    os.rename(self.filename, target)
+                    self.filename = target
+                    for sl in symlinks:
+                        os.unlink(sl)
+                        os.symlink(self.filename, sl)
 
 class RuleFinder(object):
     comment_regex = re.compile(r'\s*#|\s*$')
-    def __init__(self, ruleclass):
-        self.ruleclass = ruleclass
-        self.ruleSet = []
+    def __init__(self, rule_class):
+        self.rule_class = rule_class
+        self.rule_set = []
 
-    def loadRules(self, filename):
+    def load_rules(self, filename):
         ''' Scan a file for rules as defined by self.ruleclass '''
         with open(filename, 'r') as file:
             for n, line in enumerate(file, 1):
                 line = line.strip()
                 if self.is_comment(line): continue
                 try:
-                    rule = self.ruleclass(line)
+                    rule = self.rule_class(line)
                 except ValueError: 
                     raise SyntaxError(filename + ':' + n
                                       + ': Invalid target rule: ' + line )
-                self.ruleSet.append(rule)
+                self.rule_set.append(rule)
         
     def is_comment(self, line):
         return bool(self.comment_regex.match(line))
 
-    def getRules(self, sf):
-        ''' Return a list of rules that apply to a given SourceFile 
-        This will often return a list of a single item '''
-        rules = []
-        for rule in self.ruleSet:
-            if rule.match(sf):
-                rules.append(rule)
-                if not (hasattr(rule, 'fallthrough') and rule.fallthrough): 
-                    break
-        return rules
+    def get_rules(self, sf):
+        return RuleIter(self.rule_set, sf)
+
+class RuleIter():
+    def __init__(self, rules, sf):
+        self.rules = filter(self.check, rules)
+        self.sf = sf
+        self.fallthrough = True
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        if not self.fallthrough:
+            raise StopIteration
+        rule = next(self.rules)
+        self.fallthrough = hasattr(rule, 'fallthrough') and rule.fallthrough: 
+        return rule
+        
+    def check(self,rule):
+        return rule.match(self.sf)
+        
 
 class FilenameParser(RuleFinder):
     def __init__(self):
         RuleFinder.__init__(self, FilenameParseRule)
 
-    def parseFile(self, sf):
+    def parse_file(self, sf):
         ''' Parse the filename of the provided SourceFile '''
-        for rule in self.getRules(sf):
+        for rule in self.get_rules(sf):
             sf.metadata.update(rule.parse(sf))
         return {}
 
@@ -186,16 +203,16 @@ def main():
             raise IOError("Insufficient permissions on file: '"+filename+"'")
 
     if options.patterns:
-        fnparser.getRules(options.patterns)
+        fnparser.get_rules(options.patterns)
 
     if options.targets:
-        targetfinder.getRules(options.targets, gMetadata)
+        targetfinder.load_rules(options.targets)
 
     for filename in cfg.get('Rule Files','targets').split(';'):
-        targetfinder.getRules(filename)
+        targetfinder.load_rules(filename)
 
     for filename in cfg.get('Rule Files','patterns').split(';'):
-        fnparser.getRules(filename)
+        fnparser.load_rules(filename)
 
     static_metadata = {}
     for key in cfg.options('Global Metadata'):
@@ -204,8 +221,8 @@ def main():
     for filename in filenames:
         sourcefile = SourceFile(filename, fnparser, linking, static_metadata)
         sourcefile.getMetadata()
-        targets = targetfinder.getRules(sourcefile)
-        sourcefile.applyRules(targets)
+        targets = targetfinder.get_rules(sourcefile)
+        sourcefile.apply_rules(targets)
 
 if __name__ == "__main__":
     main()
