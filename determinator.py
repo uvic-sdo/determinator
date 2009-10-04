@@ -1,25 +1,25 @@
-import os.path
 import sys
-import getopt
+from optparse import OptionParser
+from ConfigParser import ConfigParser
+import os
+import os.path
 import mimetypes 
 import re
 import fnmatch
-from optparse import OptionParser
-from ConfigParser import ConfigParser
 
 class SourceFile(object):
     ''' This class represents a file to be determinated. It requires a valid 
     pathname and a FilenameParser object '''
 
-    def __init__(self, filename, fnparser, linkable, metadata):
+    def __init__(self, filename, fnparser, metadata):
         self.fnparser = fnparser
-        self.linkable = linkable
         self.metadata = metadata
         self.filename = os.path.abspath(filename)
         self.type = mimetypes.guess_type(filename)
         if not self.type[0]:
-            raise IOError("Unsupported filetype in file '"+filename+"'")
+            raise IOError("Unknown filetype for file '"+filename+"'")
         self.metadata['basename'] = os.path.basename(filename)
+        self.linkable = (os.name not in ['nt','ce'])
 
     def getMetadata(self):
         ''' Extract metadata by calling FileParser.parseFile, and any 
@@ -54,6 +54,7 @@ class SourceFile(object):
                     os.symlink(self.filename, target)
 
 class RuleFinder(object):
+    comment_regex = re.compile(r'\s*#|\s*$')
     def __init__(self, ruleclass):
         self.ruleclass = ruleclass
         self.ruleSet = []
@@ -61,8 +62,7 @@ class RuleFinder(object):
     def loadRules(self, filename):
         ''' Scan a file for rules as defined by self.ruleclass '''
         with open(filename, 'r') as file:
-            n = 1
-            for line in file:
+            for n, line in enumerate(file, 1):
                 line = line.strip()
                 if self.is_comment(line): continue
                 try:
@@ -71,11 +71,9 @@ class RuleFinder(object):
                     raise SyntaxError(filename + ':' + n
                                       + ': Invalid target rule: ' + line )
                 self.ruleSet.append(rule)
-                n += 1
         
     def is_comment(self, line):
-        regex = re.compile(r'\s*#|\s*$')
-        return bool(regex.match(line))
+        return bool(self.comment_regex.match(line))
 
     def getRules(self, sf):
         ''' Return a list of rules that apply to a given SourceFile 
@@ -164,8 +162,6 @@ def setup():
     options, filenames = optparser.parse_args()
     cfg = ConfigParser()
     cfg.read(os.path.expanduser('~/.config/determinator/determinator.rc'))
-
-    options.no_linking = (os.name not in ['nt', 'ce'])
 
     if len(filenames) == 0:
         optparser.print_help();
