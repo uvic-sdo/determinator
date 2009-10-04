@@ -11,15 +11,15 @@ class SourceFile(object):
     ''' This class represents a file to be determinated. It requires a valid 
     pathname and a FilenameParser object '''
 
-    def __init__(self, filename, fnparser):
+    def __init__(self, filename, fnparser, linkable, metadata):
         self.fnparser = fnparser
+        self.linkable = linkable
+        self.metadata = metadata
         self.filename = os.path.abspath(filename)
         self.type = mimetypes.guess_type(filename)
         if not self.type[0] or self.type[0].split('/')[0] not in ['audio', 'video']:
             raise IOError("Unsupported filetype in file '"+filename+"'")
-        self.metadata = {'basename': os.path.basename(filename)} 
-        for option in CONFIG.options('Global Metadata'):
-            self.metadata[option] = CONFIG.get('Global Metadata', option)
+        self.metadata['basename'] = os.path.basename(filename)
 
     def getMetadata(self):
         ''' Extract metadata by calling FileParser.parseFile, and any 
@@ -30,10 +30,10 @@ class SourceFile(object):
 
     def applyRules(self, rules):
         ''' Apply the provided set of rules to the file '''
-        for rule in rules:
+        for rule in rules.sort():
             target = rule.format(self, True)
             for operator in rule.operators:
-                if OPTIONS.no_linking and operator in 'Ll':
+                if not self.linkable and operator in 'Ll':
                     print("Linking not possible on this platform")
                     continue
 
@@ -60,6 +60,7 @@ class RuleFinder(object):
         self.ruleSet = []
 
     def loadRules(self, filename):
+        ''' Scan a file for rules as defined by self.ruleclass '''
         with open(filename, 'r') as file:
             n = 1
             for line in file:
@@ -137,10 +138,14 @@ class TargetRule(MimeRule):
         except KeyError, IndexError: 
             return False
 
-def get_options():
-    global OPTIONS
-    global ARGS
-    global CONFIG
+    def __eq__(self, other):
+        return (self.fallthrough == other.fallthrough)
+
+    def __gt__(self, other):
+        return(other.fallthrough and not self.fallthrough)
+
+
+def main():
     optparser = OptionParser()
     optparser.usage = optparser.usage+' FILE [FILE FILE ...]'
     optparser.add_option("-r","--root", dest="root", metavar="DIR",
@@ -154,52 +159,52 @@ def get_options():
     optparser.add_option("-d","--debug", dest="debug", default=False, action='store_true',
                          help="Show debug info")
 
-    OPTIONS, ARGS = optparser.parse_args()
+    options, filenames = optparser.parse_args()
 
-    CONFIG = ConfigParser()
-    CONFIG.read(os.path.expanduser('~/.config/determinator/determinator.rc'))
+    cfg = ConfigParser()
+    cfg.read(os.path.expanduser('~/.config/determinator/determinator.rc'))
 
-    OPTIONS.no_linking = (os.name in ['nt', 'ce'])
+    options.no_linking = (os.name not in ['nt', 'ce'])
 
-    if len(ARGS) == 0:
+    if len(filenames) == 0:
         optparser.print_help();
         quit()
 
-    if not OPTIONS.root:
+    if not options.root:
         try:
-            OPTIONS.root = CONFIG.get('Misc Options', 'root')
-        except:
-            OPTIONS.root = os.getcwd()
+            options.root = cfg.get('Misc Options', 'root')
+        finally:
+            options.root = os.getcwd()
 
-
-
-def main():
-    get_options()
     mimetypes.init([os.path.dirname(__file__)+'/mime.types'])
     fnparser = FilenameParser()
     targetfinder = RuleFinder(TargetRule)
 
-    for filename in ARGS:
+    for filename in filenames:
         if not os.access(filename, os.F_OK & os.W_OK & os.R_OK):
             raise IOError("Insufficient permissions on file: '"+filename+"'")
 
-    if OPTIONS.patterns:
-        fnparser.getRules(OPTIONS.patterns)
+    if options.patterns:
+        fnparser.getRules(options.patterns)
 
-    if OPTIONS.targets:
-        targetfinder.getRules(OPTIONS.targets)
+    if options.targets:
+        targetfinder.getRules(options.targets, gMetadata)
 
-    for filename in CONFIG.get('Rule Files','targets').split(';'):
+    for filename in cfg.get('Rule Files','targets').split(';'):
         targetfinder.getRules(filename)
 
-    for filename in CONFIG.get('Rule Files','patterns').split(';'):
+    for filename in cfg.get('Rule Files','patterns').split(';'):
         fnparser.getRules(filename)
 
-    for filename in ARGS:
-        sourcefile = SourceFile(filename, fnparser)
+    static_metadata = {}
+    for key in cfg.options('Global Metadata'):
+        static_metadata[key] = cfg.get('Global Metadata', key)
+
+    for filename in filenames:
+        sourcefile = SourceFile(filename, fnparser, linking, static_metadata)
         sourcefile.getMetadata()
-        rules = targetfinder.getRules(sourcefile)
-        sourcefile.applyRules(rules)
+        targets = targetfinder.getRules(sourcefile)
+        sourcefile.applyRules(targets)
 
 if __name__ == "__main__":
     main()
