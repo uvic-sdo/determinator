@@ -1,3 +1,4 @@
+#/usr/bin/env python
 import sys
 from optparse import OptionParser
 from ConfigParser import ConfigParser
@@ -11,8 +12,11 @@ class SourceFile(object):
     ''' This class represents a file to be determinated. It requires a valid 
     pathname and a FilenameParser object '''
 
-    def __init__(self, filename, fnparser, metadata):
-        self.fnparser = fnparser
+    def __init__(self, filename, fnparser=None, metadata={}):
+        if fnparser:
+            self.fnparser = fnparser
+        else:
+            self.fnparser = FilenameParser();
         self.metadata = metadata
         self.filename = os.path.abspath(filename)
         self.type = mimetypes.guess_type(filename)
@@ -60,22 +64,29 @@ class SourceFile(object):
 
 class RuleFinder(object):
     comment_regex = re.compile(r'\s*#|\s*$')
-    def __init__(self, rule_class):
-        self.rule_class = rule_class
+    def __init__(self, rule_cls, rule_file=None):
+        self.rule_cls = rule_cls
         self.rule_set = []
+        if rule_file: self.add_rules(rule_file)
 
-    def load_rules(self, filename):
-        ''' Scan a file for rules as defined by self.ruleclass '''
-        with open(filename, 'r') as file:
-            for n, line in enumerate(file, 1):
-                line = line.strip()
-                if self.is_comment(line): continue
-                try:
-                    rule = self.rule_class(line)
-                except ValueError: 
-                    raise SyntaxError(filename + ':' + n
-                                      + ': Invalid target rule: ' + line )
-                self.rule_set.append(rule)
+    def add_rules(self, files):
+        ''' Scan a file (or list of files) for rules. Lines must have the 
+        format required by self.rule_cls '''
+        if type(files) == type(''): files = [files]
+        for file in files:
+            try:
+                file = open(filename, 'r')
+                for n, line in enumerate(file, 1):
+                    line = line.strip()
+                    if self.is_comment(line): continue
+                    try:
+                        rule = self.rule_cls(line)
+                    except ValueError: 
+                        raise SyntaxError(filename + ':' + n
+                                          + ' - Invalid target rule: ' + line )
+                    self.rule_set.append(rule)
+            finally:
+                file.close()
         
     def is_comment(self, line):
         return bool(self.comment_regex.match(line))
@@ -85,8 +96,8 @@ class RuleFinder(object):
 
 class RuleIter():
     def __init__(self, rules, sf):
-        self.rules = filter(self.check, rules)
         self.sf = sf
+        self.rules = filter(self.check, rules)
         self.fallthrough = True
 
     def __iter__(self):
@@ -96,7 +107,7 @@ class RuleIter():
         if not self.fallthrough:
             raise StopIteration
         rule = next(self.rules)
-        self.fallthrough = hasattr(rule, 'fallthrough') and rule.fallthrough: 
+        self.fallthrough = (hasattr(rule, 'fallthrough') and rule.fallthrough) 
         return rule
         
     def check(self,rule):
@@ -104,8 +115,8 @@ class RuleIter():
         
 
 class FilenameParser(RuleFinder):
-    def __init__(self):
-        RuleFinder.__init__(self, FilenameParseRule)
+    def __init__(self, rule_file=None):
+        RuleFinder.__init__(self, FilenameParseRule, rule_file)
 
     def parse_file(self, sf):
         ''' Parse the filename of the provided SourceFile '''
@@ -139,7 +150,8 @@ class FilenameParseRule(MimeRule):
         
 class TargetRule(MimeRule):
     def __init__(self, line):
-        self.mime_pattern, self.target, self.operators = re.split('\t\s*', line)
+        self.mime_pattern, self.target, self.operators \
+          = re.split('\t\s*', line)
         self.fallthrough = (self.operators.find('f') >= 0)
 
     def format(self, sf, force=False):
@@ -169,7 +181,7 @@ def setup():
                          help="Specify a file containing filename patterns \
                          for metadata extraction")
     optparser.add_option("-t","--targets", dest="targets", metavar="FILE",
-                         help="Specify a file containing target patterns")
+                         help="Specify a file containing target rules")
     optparser.add_option("-v","--verbose", dest="verbose", default=False, 
                          action='store_true',
                          help="Show lots of info about what is being done")
@@ -195,24 +207,21 @@ def setup():
 
 def main():
     options, filenames, cfg = setup()
-    fnparser = FilenameParser()
-    targetfinder = RuleFinder(TargetRule)
-
     for filename in filenames:
         if not os.access(filename, os.F_OK & os.W_OK & os.R_OK):
             raise IOError("Insufficient permissions on file: '"+filename+"'")
 
+    fnparser = FilenameParser()
+    targetfinder = RuleFinder(TargetRule)
+
     if options.patterns:
-        fnparser.get_rules(options.patterns)
+        fnparser.get_rules(options.patterns.split(','))
 
     if options.targets:
-        targetfinder.load_rules(options.targets)
+        targetfinder.add_rules(options.targets.split(','))
 
-    for filename in cfg.get('Rule Files','targets').split(';'):
-        targetfinder.load_rules(filename)
-
-    for filename in cfg.get('Rule Files','patterns').split(';'):
-        fnparser.load_rules(filename)
+    targetfinder.add_rules()
+    fnparser.add_rules(cfg.get('Rule Files','patterns').split(','))
 
     static_metadata = {}
     for key in cfg.options('Global Metadata'):
