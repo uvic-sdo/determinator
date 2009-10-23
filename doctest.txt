@@ -1,3 +1,5 @@
+Testing the merging features
+
 Tests for the ``determinator``
 ==============================
 
